@@ -6,11 +6,14 @@ const db = require('./db');
 const { parseIncomingMessage, sendText } = require('./evolution');
 const { classifyConversation } = require('./classifier');
 const { buildReportText } = require('./report');
+const { registerDashboard } = require('./dashboard');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 const PORT = process.env.PORT || 3000;
+
+registerDashboard(app);
 
 // --- Webhook: recebe eventos do Evolution API (configurar em Settings > Webhook da instância limpa-limpa) ---
 app.post('/webhook', async (req, res) => {
