@@ -1,0 +1,17 @@
+{
+  "name": "limpa-limpa-report",
+  "version": "1.0.0",
+  "description": "Escuta as conversas de WhatsApp da Limpa Limpa via Evolution API, classifica com Claude e envia um relatório diário às 19h.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1",
+    "dotenv": "^16.4.5"
+  }
+}
