@@ -15,8 +15,10 @@ Responda APENAS com um JSON válido, sem markdown, sem texto antes ou depois, no
   "notes": string curta ou null (ex: "Pediu orçamento mas não retornou")
 }
 
+Observação sobre mídia: quando a transcrição contiver algo como "[Cliente enviou uma imagem (possível comprovante de pagamento)]" ou "[Cliente enviou um documento/PDF...]", trate isso como um forte indício de que o cliente mandou um comprovante de pagamento (recibo, print do PIX, etc), mesmo sem texto explicando. Combine esse indício com o resto da conversa (ex: se antes disso a atendente pediu pagamento, e depois disso agradeceu ou confirmou recebimento) para decidir o status.
+
 Definições dos status:
-- "pagou": cliente confirmou pagamento nessa conversa.
+- "pagou": cliente confirmou pagamento nessa conversa (inclui ter mandado um comprovante em imagem/PDF que fecha o ciclo de uma cobrança).
 - "contratou": fechou o serviço mas o pagamento ainda não foi confirmado no texto.
 - "aguardando_pagamento": serviço combinado, cobrança enviada, aguardando confirmação de pagamento.
 - "nao_contratou": pediu orçamento/informação mas não fechou.
