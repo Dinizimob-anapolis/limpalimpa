@@ -72,4 +72,38 @@ async function saveDailyReport(reportDate, summary, reportText) {
   );
 }
 
-module.exports = { pool, initSchema, saveMessage, getConversationsForDate, upsertDailyStatus, saveDailyReport };
+async function getDailyStatusForDate(dateStr) {
+  const { rows } = await pool.query(
+    `SELECT * FROM daily_status WHERE report_date = $1::date ORDER BY client_name NULLS LAST`,
+    [dateStr]
+  );
+  return rows;
+}
+
+async function getReportForDate(dateStr) {
+  const { rows } = await pool.query(
+    `SELECT * FROM daily_reports WHERE report_date = $1::date`,
+    [dateStr]
+  );
+  return rows[0] || null;
+}
+
+async function getRecentReportDates(limit = 14) {
+  const { rows } = await pool.query(
+    `SELECT report_date FROM daily_reports ORDER BY report_date DESC LIMIT $1`,
+    [limit]
+  );
+  return rows.map((r) => r.report_date.toISOString().slice(0, 10));
+}
+
+module.exports = {
+  pool,
+  initSchema,
+  saveMessage,
+  getConversationsForDate,
+  upsertDailyStatus,
+  saveDailyReport,
+  getDailyStatusForDate,
+  getReportForDate,
+  getRecentReportDates,
+};
