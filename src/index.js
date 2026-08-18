@@ -63,7 +63,7 @@ async function runDailyReport(dateStr, { send = true } = {}) {
   return { text, summary, entries };
 }
 
-// Endpoint manual pra testar/reprocessar sem esperar as 19h.
+// Endpoint manual pra testar/reprocessar sem esperar as 18h.
 // Ex: GET /run-report?date=2026-08-18&send=false
 app.get('/run-report', async (req, res) => {
   try {
@@ -80,8 +80,8 @@ app.get('/run-report', async (req, res) => {
 async function start() {
   await db.initSchema();
 
-  // Todo dia às 19h (fuso definido por TZ no .env, ex: America/Sao_Paulo)
-  cron.schedule('0 19 * * *', () => {
+  // Todo dia às 18h (fuso definido por TZ no .env, ex: America/Sao_Paulo)
+  cron.schedule('0 18 * * *', () => {
     const dateStr = new Date().toISOString().slice(0, 10);
     runDailyReport(dateStr).catch((err) => console.error('[cron] erro:', err));
   });
