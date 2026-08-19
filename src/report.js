@@ -51,4 +51,26 @@ ${rows || 'Nenhuma conversa registrada hoje.'}
   return { text, summary };
 }
 
-module.exports = { buildReportText, buildSummary, STATUS_LABEL };
+function buildScheduleText(dateStr, scheduleEntries) {
+  if (!scheduleEntries.length) {
+    return `👷 *Escala de equipe — Limpa Limpa* (${dateStr})\n\nNenhuma conversa com a equipe registrada hoje.`;
+  }
+
+  const rows = scheduleEntries
+    .map((e) => {
+      const name = e.staffName || '(sem nome)';
+      const flag = e.pendingConfirmation ? ' ⚠️ pendente de confirmação' : '';
+      return `• *${name}*: ${e.summary || 'sem resumo'}${flag}`;
+    })
+    .join('\n');
+
+  const pendingCount = scheduleEntries.filter((e) => e.pendingConfirmation).length;
+
+  return `👷 *Escala de equipe — Limpa Limpa* (${dateStr})
+
+${rows}
+
+${pendingCount > 0 ? `⚠️ ${pendingCount} conversa(s) com confirmação pendente.` : '✅ Nenhuma pendência de confirmação.'}`;
+}
+
+module.exports = { buildReportText, buildSummary, buildScheduleText, STATUS_LABEL };
