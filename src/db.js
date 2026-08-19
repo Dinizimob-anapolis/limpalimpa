@@ -85,13 +85,31 @@ async function deleteDailySchedule(reportDate, remoteJid) {
 
 async function upsertDailySchedule(reportDate, entry) {
   await pool.query(
-    `INSERT INTO daily_schedule (report_date, remote_jid, staff_name, summary, pending_confirmation)
-     VALUES ($1,$2,$3,$4,$5)
+    `INSERT INTO daily_schedule (report_date, remote_jid, staff_name, summary, pending_confirmation, serving_client_name, duration_hours, work_status, start_time, end_time, address)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (report_date, remote_jid) DO UPDATE SET
        staff_name = EXCLUDED.staff_name,
        summary = EXCLUDED.summary,
-       pending_confirmation = EXCLUDED.pending_confirmation`,
-    [reportDate, entry.remoteJid, entry.staffName, entry.summary, entry.pendingConfirmation]
+       pending_confirmation = EXCLUDED.pending_confirmation,
+       serving_client_name = EXCLUDED.serving_client_name,
+       duration_hours = EXCLUDED.duration_hours,
+       work_status = EXCLUDED.work_status,
+       start_time = EXCLUDED.start_time,
+       end_time = EXCLUDED.end_time,
+       address = EXCLUDED.address`,
+    [
+      reportDate,
+      entry.remoteJid,
+      entry.staffName,
+      entry.summary,
+      entry.pendingConfirmation,
+      entry.servingClientName || null,
+      entry.durationHours || null,
+      entry.workStatus || 'aguardando',
+      entry.startTime || null,
+      entry.endTime || null,
+      entry.address || null,
+    ]
   );
 }
 
@@ -105,16 +123,35 @@ async function getDailyScheduleForDate(dateStr) {
 
 async function upsertDailyStatus(reportDate, entry) {
   await pool.query(
-    `INSERT INTO daily_status (report_date, remote_jid, client_name, status, value, service_type, is_new_client, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO daily_status (report_date, remote_jid, client_name, status, value, service_type, is_new_client, notes, duration_hours, scheduled_date, scheduled_time, address, assigned_staff_name)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      ON CONFLICT (report_date, remote_jid) DO UPDATE SET
        client_name = EXCLUDED.client_name,
        status = EXCLUDED.status,
        value = EXCLUDED.value,
        service_type = EXCLUDED.service_type,
        is_new_client = EXCLUDED.is_new_client,
-       notes = EXCLUDED.notes`,
-    [reportDate, entry.remoteJid, entry.clientName, entry.status, entry.value, entry.serviceType, entry.isNewClient, entry.notes || null]
+       notes = EXCLUDED.notes,
+       duration_hours = EXCLUDED.duration_hours,
+       scheduled_date = EXCLUDED.scheduled_date,
+       scheduled_time = EXCLUDED.scheduled_time,
+       address = EXCLUDED.address,
+       assigned_staff_name = EXCLUDED.assigned_staff_name`,
+    [
+      reportDate,
+      entry.remoteJid,
+      entry.clientName,
+      entry.status,
+      entry.value,
+      entry.serviceType,
+      entry.isNewClient,
+      entry.notes || null,
+      entry.durationHours || null,
+      entry.scheduledDate || null,
+      entry.scheduledTime || null,
+      entry.address || null,
+      entry.assignedStaffName || null,
+    ]
   );
 }
 
