@@ -7,6 +7,7 @@ const { parseIncomingMessage, sendText } = require('./evolution');
 const { classifyConversation, classifyStaffConversation } = require('./classifier');
 const { buildReportText, buildScheduleText } = require('./report');
 const { registerDashboard } = require('./dashboard');
+const { realNameFor } = require('./contacts');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
@@ -19,6 +20,15 @@ registerDashboard(app);
 // e já salva o resultado em daily_status ou daily_schedule. Usado tanto em tempo real
 // (toda vez que chega mensagem nova) quanto no fechamento das 18h.
 async function reclassifyConversation(dateStr, remoteJid) {
+  const ignoredJids = db.getIgnoredJidSet();
+  if (ignoredJids.has(remoteJid)) {
+    // Número ignorado (ex: conversa da própria dona da empresa) — não processa,
+    // e remove qualquer registro antigo que já tenha ficado salvo por engano.
+    await db.deleteDailyStatus(dateStr, remoteJid);
+    await db.deleteDailySchedule(dateStr, remoteJid);
+    return;
+  }
+
   const staffJids = await db.getStaffJidSet();
   const conv = await db.getConversationTranscript(dateStr, remoteJid);
   if (!conv) return;
@@ -27,9 +37,16 @@ async function reclassifyConversation(dateStr, remoteJid) {
     const classification = await classifyStaffConversation(conv.transcript, conv.push_name);
     await db.upsertDailySchedule(dateStr, {
       remoteJid,
-      staffName: classification.staff_name || conv.push_name,
+      staffName: realNameFor(remoteJid) || classification.staff_name || conv.push_name,
       summary: classification.summary,
       pendingConfirmation: !!classification.pending_confirmation,
+      servingClientName: classification.serving_client_name,
+      durationHours: classification.duration_hours,
+      workStatus: classification.work_status || 'aguardando',
+      startTime: classification.start_time,
+      endTime: classification.end_time,
+      address: classification.address,
+      isSchedulingRelated: classification.is_scheduling_related !== false,
     });
     // Se essa conversa já tinha ficado gravada como cliente antes (ex: antes do
     // número entrar na lista STAFF_NUMBERS), remove o registro errado.
@@ -38,12 +55,17 @@ async function reclassifyConversation(dateStr, remoteJid) {
     const classification = await classifyConversation(conv.transcript, conv.push_name);
     await db.upsertDailyStatus(dateStr, {
       remoteJid,
-      clientName: classification.client_name || conv.push_name,
+      clientName: realNameFor(remoteJid) || classification.client_name || conv.push_name,
       status: classification.status || 'em_atendimento',
       value: classification.value,
       serviceType: classification.service_type,
       isNewClient: !!classification.is_new_client,
       notes: classification.notes,
+      durationHours: classification.duration_hours,
+      scheduledDate: classification.scheduled_date,
+      scheduledTime: classification.scheduled_time,
+      address: classification.address,
+      assignedStaffName: classification.assigned_staff_name,
     });
     // Mesma lógica ao contrário: se antes ela tinha sido classificada como equipe,
     // remove o registro velho da tabela de escala.
