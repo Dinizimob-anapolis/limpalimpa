@@ -35,8 +35,20 @@ function getStaffJidSet() {
   return new Set(numbers.map((n) => `${n}@s.whatsapp.net`));
 }
 
+// Números que devem ser completamente ignorados (nem cliente, nem equipe) —
+// ex: a conversa da própria dona/gestão da empresa.
+function getIgnoredJidSet() {
+  const raw = process.env.IGNORED_NUMBERS || '';
+  const numbers = raw
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  return new Set(numbers.map((n) => `${n}@s.whatsapp.net`));
+}
+
 // Retorna todas as conversas do dia, já separadas em "clientes" e "equipe"
-// com base na lista de números de funcionárias (STAFF_NUMBERS).
+// com base na lista de números de funcionárias (STAFF_NUMBERS), excluindo
+// qualquer número presente em IGNORED_NUMBERS.
 async function getConversationsForDate(dateStr) {
   const { rows } = await pool.query(
     `SELECT remote_jid,
@@ -52,8 +64,10 @@ async function getConversationsForDate(dateStr) {
   );
 
   const staffJids = getStaffJidSet();
-  const clientConversations = rows.filter((r) => !staffJids.has(r.remote_jid));
-  const staffConversations = rows.filter((r) => staffJids.has(r.remote_jid));
+  const ignoredJids = getIgnoredJidSet();
+  const visibleRows = rows.filter((r) => !ignoredJids.has(r.remote_jid));
+  const clientConversations = visibleRows.filter((r) => !staffJids.has(r.remote_jid));
+  const staffConversations = visibleRows.filter((r) => staffJids.has(r.remote_jid));
 
   return { clientConversations, staffConversations };
 }
@@ -85,8 +99,8 @@ async function deleteDailySchedule(reportDate, remoteJid) {
 
 async function upsertDailySchedule(reportDate, entry) {
   await pool.query(
-    `INSERT INTO daily_schedule (report_date, remote_jid, staff_name, summary, pending_confirmation, serving_client_name, duration_hours, work_status, start_time, end_time, address)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    `INSERT INTO daily_schedule (report_date, remote_jid, staff_name, summary, pending_confirmation, serving_client_name, duration_hours, work_status, start_time, end_time, address, is_scheduling_related)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (report_date, remote_jid) DO UPDATE SET
        staff_name = EXCLUDED.staff_name,
        summary = EXCLUDED.summary,
@@ -96,7 +110,8 @@ async function upsertDailySchedule(reportDate, entry) {
        work_status = EXCLUDED.work_status,
        start_time = EXCLUDED.start_time,
        end_time = EXCLUDED.end_time,
-       address = EXCLUDED.address`,
+       address = EXCLUDED.address,
+       is_scheduling_related = EXCLUDED.is_scheduling_related`,
     [
       reportDate,
       entry.remoteJid,
@@ -109,6 +124,7 @@ async function upsertDailySchedule(reportDate, entry) {
       entry.startTime || null,
       entry.endTime || null,
       entry.address || null,
+      entry.isSchedulingRelated !== false,
     ]
   );
 }
@@ -202,6 +218,7 @@ module.exports = {
   getConversationsForDate,
   getConversationTranscript,
   getStaffJidSet,
+  getIgnoredJidSet,
   upsertDailyStatus,
   saveDailyReport,
   getDailyStatusForDate,
