@@ -75,6 +75,14 @@ async function getConversationTranscript(dateStr, remoteJid) {
   return rows[0] || null;
 }
 
+async function deleteDailyStatus(reportDate, remoteJid) {
+  await pool.query(`DELETE FROM daily_status WHERE report_date = $1::date AND remote_jid = $2`, [reportDate, remoteJid]);
+}
+
+async function deleteDailySchedule(reportDate, remoteJid) {
+  await pool.query(`DELETE FROM daily_schedule WHERE report_date = $1::date AND remote_jid = $2`, [reportDate, remoteJid]);
+}
+
 async function upsertDailySchedule(reportDate, entry) {
   await pool.query(
     `INSERT INTO daily_schedule (report_date, remote_jid, staff_name, summary, pending_confirmation)
@@ -164,4 +172,6 @@ module.exports = {
   getRecentReportDates,
   upsertDailySchedule,
   getDailyScheduleForDate,
+  deleteDailyStatus,
+  deleteDailySchedule,
 };
