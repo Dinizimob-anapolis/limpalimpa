@@ -52,3 +52,18 @@ CREATE TABLE IF NOT EXISTS daily_schedule (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(report_date, remote_jid)
 );
+
+-- Colunas adicionais pra suportar agenda, duração e alocação de funcionária
+ALTER TABLE daily_status ADD COLUMN IF NOT EXISTS duration_hours INT;
+ALTER TABLE daily_status ADD COLUMN IF NOT EXISTS scheduled_date DATE;
+ALTER TABLE daily_status ADD COLUMN IF NOT EXISTS scheduled_time TEXT;
+ALTER TABLE daily_status ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE daily_status ADD COLUMN IF NOT EXISTS assigned_staff_name TEXT;
+
+-- Colunas adicionais pra suportar local, horário e status do trabalho da funcionária
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS serving_client_name TEXT;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS duration_hours INT;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS work_status TEXT DEFAULT 'aguardando';
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS start_time TEXT;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS end_time TEXT;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS address TEXT;
