@@ -31,6 +31,9 @@ async function reclassifyConversation(dateStr, remoteJid) {
       summary: classification.summary,
       pendingConfirmation: !!classification.pending_confirmation,
     });
+    // Se essa conversa já tinha ficado gravada como cliente antes (ex: antes do
+    // número entrar na lista STAFF_NUMBERS), remove o registro errado.
+    await db.deleteDailyStatus(dateStr, remoteJid);
   } else {
     const classification = await classifyConversation(conv.transcript, conv.push_name);
     await db.upsertDailyStatus(dateStr, {
@@ -42,6 +45,9 @@ async function reclassifyConversation(dateStr, remoteJid) {
       isNewClient: !!classification.is_new_client,
       notes: classification.notes,
     });
+    // Mesma lógica ao contrário: se antes ela tinha sido classificada como equipe,
+    // remove o registro velho da tabela de escala.
+    await db.deleteDailySchedule(dateStr, remoteJid);
   }
 }
 
