@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_remote_jid ON messages(remote_jid);
 CREATE INDEX IF NOT EXISTS idx_messages_wa_timestamp ON messages(wa_timestamp);
 
--- Classificação diária por cliente, gerada pelo Claude no fechamento das 19h
+-- Classificação diária por cliente, gerada pelo Claude (em tempo real, a cada mensagem)
 CREATE TABLE IF NOT EXISTS daily_status (
   id SERIAL PRIMARY KEY,
   report_date DATE NOT NULL,
@@ -39,4 +39,16 @@ CREATE TABLE IF NOT EXISTS daily_reports (
   orcamentos_sem_fechamento INT NOT NULL DEFAULT 0,
   report_text TEXT,
   sent_at TIMESTAMPTZ
+);
+
+-- Resumo diário das conversas com a equipe (funcionárias), separado das conversas com clientes
+CREATE TABLE IF NOT EXISTS daily_schedule (
+  id SERIAL PRIMARY KEY,
+  report_date DATE NOT NULL,
+  remote_jid TEXT NOT NULL,
+  staff_name TEXT,
+  summary TEXT,               -- resumo do que foi combinado (faxinas do dia, horários, endereços)
+  pending_confirmation BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(report_date, remote_jid)
 );
