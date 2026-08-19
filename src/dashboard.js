@@ -15,6 +15,8 @@ const WORK_STATUS_META = {
   concluido: { label: '✅ Concluído', color: '#1a7f37' },
 };
 
+const CONVERTED_STATUSES = ['pagou', 'contratou', 'aguardando_pagamento'];
+
 function money(v) {
   if (v === null || v === undefined) return '—';
   return `R$ ${Number(v).toFixed(2).replace('.', ',')}`;
@@ -26,6 +28,11 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function phoneFromJid(remoteJid) {
+  if (!remoteJid) return null;
+  return remoteJid.split('@')[0];
 }
 
 function basicAuth(req, res, next) {
@@ -56,6 +63,8 @@ function basicAuth(req, res, next) {
 function clientRow(r) {
   const meta = STATUS_META[r.status] || { label: r.status, color: '#57606a' };
   const agenda = [r.scheduled_date, r.scheduled_time].filter(Boolean).join(' ');
+  const phone = phoneFromJid(r.remote_jid);
+  const notesWithPhone = [phone ? `📞 ${phone}` : null, r.notes || null].filter(Boolean).join(' — ');
   return `<tr>
     <td>${escapeHtml(r.client_name || '(sem nome)')}</td>
     <td><span class="badge" style="background:${meta.color}">${meta.label}</span></td>
@@ -64,7 +73,7 @@ function clientRow(r) {
     <td>${escapeHtml(agenda || '—')}</td>
     <td>${escapeHtml(r.assigned_staff_name || '—')}</td>
     <td>${escapeHtml(r.address || '—')}</td>
-    <td class="notes">${escapeHtml(r.notes || '')}</td>
+    <td class="notes">${escapeHtml(notesWithPhone)}</td>
   </tr>`;
 }
 
@@ -84,14 +93,36 @@ function staffRow(r) {
   </tr>`;
 }
 
-function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, activeTab) {
-  const clientRowsHtml = statusRows.length
-    ? statusRows.map(clientRow).join('')
-    : `<tr><td colspan="8" class="empty">Nenhuma conversa de cliente registrada nesse dia.</td></tr>`;
+function staffRandomRow(r) {
+  const phone = phoneFromJid(r.remote_jid);
+  const notesWithPhone = [phone ? `📞 ${phone}` : null, r.summary || null].filter(Boolean).join(' — ');
+  return `<tr>
+    <td>${escapeHtml(r.staff_name || '(sem nome)')}</td>
+    <td class="notes">${escapeHtml(notesWithPhone)}</td>
+  </tr>`;
+}
 
-  const staffRowsHtml = scheduleRows.length
-    ? scheduleRows.map(staffRow).join('')
-    : `<tr><td colspan="8" class="empty">Nenhuma conversa com a equipe registrada nesse dia.</td></tr>`;
+function table(headers, rowsHtml, emptyMsg) {
+  return `<table>
+    <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rowsHtml || `<tr><td colspan="${headers.length}" class="empty">${emptyMsg}</td></tr>`}</tbody>
+  </table>`;
+}
+
+function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, activeTab) {
+  const converted = statusRows.filter((r) => CONVERTED_STATUSES.includes(r.status));
+  const inquiring = statusRows.filter((r) => !CONVERTED_STATUSES.includes(r.status));
+
+  const schedulingRows = scheduleRows.filter((r) => r.is_scheduling_related !== false);
+  const randomRows = scheduleRows.filter((r) => r.is_scheduling_related === false);
+
+  const clientHeaders = ['Cliente', 'Situação', 'Valor', 'Serviço', 'Agenda', 'Funcionária', 'Endereço', 'Notas'];
+  const convertedHtml = table(clientHeaders, converted.map(clientRow).join(''), 'Nenhum cliente contratou/agendou nesse dia.');
+  const inquiringHtml = table(clientHeaders, inquiring.map(clientRow).join(''), 'Nenhum cliente só perguntando nesse dia.');
+
+  const staffHeaders = ['Funcionária', 'Status', 'Cliente', 'Local', 'Duração', 'Horário', 'Recebe', 'Notas'];
+  const schedulingHtml = table(staffHeaders, schedulingRows.map(staffRow).join(''), 'Nenhuma conversa de agendamento com a equipe nesse dia.');
+  const randomHtml = table(['Funcionária', 'Conversa'], randomRows.map(staffRandomRow).join(''), 'Nenhuma conversa fora do assunto de agendamento nesse dia.');
 
   const summary = report || {
     total_recebido: 0,
@@ -101,9 +132,9 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
     orcamentos_sem_fechamento: 0,
   };
 
-  const emAndamento = scheduleRows.filter((r) => r.work_status === 'em_andamento').length;
-  const concluidos = scheduleRows.filter((r) => r.work_status === 'concluido').length;
-  const totalFolha = scheduleRows.reduce((sum, r) => sum + (r.duration_hours ? staffPriceFor(r.duration_hours) : 0), 0);
+  const emAndamento = schedulingRows.filter((r) => r.work_status === 'em_andamento').length;
+  const concluidos = schedulingRows.filter((r) => r.work_status === 'concluido').length;
+  const totalFolha = schedulingRows.reduce((sum, r) => sum + (r.duration_hours ? staffPriceFor(r.duration_hours) : 0), 0);
 
   const datesNav = recentDates
     .map((d) => `<a href="/dashboard?date=${d}&tab=${activeTab}" class="${d === dateStr ? 'active' : ''}">${d}</a>`)
@@ -119,6 +150,7 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 24px; }
   h1 { font-size: 20px; margin-bottom: 4px; }
+  h2 { font-size: 15px; color: #c9d1d9; margin: 24px 0 10px; }
   .date-label { color: #8b949e; margin-bottom: 16px; }
   .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
   .tabs a { padding: 8px 16px; border-radius: 8px; text-decoration: none; color: #8b949e; border: 1px solid #30363d; font-weight: 600; font-size: 14px; }
@@ -127,11 +159,11 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
   .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; min-width: 140px; }
   .card .value { font-size: 22px; font-weight: 700; }
   .card .label { color: #8b949e; font-size: 12px; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #30363d; font-size: 13px; }
   th { color: #8b949e; font-weight: 600; font-size: 11px; text-transform: uppercase; }
   .badge { color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; white-space: nowrap; }
-  .notes { color: #8b949e; font-size: 12px; max-width: 240px; }
+  .notes { color: #8b949e; font-size: 12px; max-width: 260px; }
   .pending { color: #d29922; font-weight: 600; }
   .empty { text-align: center; color: #8b949e; padding: 24px; }
   .nav { margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -160,27 +192,27 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
       <div class="card"><div class="value">${summary.pagamentos_pendentes}</div><div class="label">⏳ Pagamentos pendentes</div></div>
       <div class="card"><div class="value">${summary.orcamentos_sem_fechamento}</div><div class="label">❌ Sem fechamento</div></div>
     </div>
-    <table>
-      <thead>
-        <tr><th>Cliente</th><th>Situação</th><th>Valor</th><th>Serviço</th><th>Agenda</th><th>Funcionária</th><th>Endereço</th><th>Notas</th></tr>
-      </thead>
-      <tbody>${clientRowsHtml}</tbody>
-    </table>
+
+    <h2>🟢 Contrataram / Agendaram</h2>
+    ${convertedHtml}
+
+    <h2>💬 Só perguntaram / Em negociação</h2>
+    ${inquiringHtml}
   </div>
 
   <div class="section staff">
     <div class="cards">
-      <div class="card"><div class="value">${scheduleRows.length}</div><div class="label">🧹 Funcionárias ativas</div></div>
+      <div class="card"><div class="value">${schedulingRows.length}</div><div class="label">🧹 Agendamentos ativos</div></div>
       <div class="card"><div class="value">${emAndamento}</div><div class="label">🟡 Em andamento</div></div>
       <div class="card"><div class="value">${concluidos}</div><div class="label">✅ Concluídos</div></div>
       <div class="card"><div class="value">${money(totalFolha)}</div><div class="label">💸 Total a pagar (folha do dia)</div></div>
     </div>
-    <table>
-      <thead>
-        <tr><th>Funcionária</th><th>Status</th><th>Cliente</th><th>Local</th><th>Duração</th><th>Horário</th><th>Recebe</th><th>Notas</th></tr>
-      </thead>
-      <tbody>${staffRowsHtml}</tbody>
-    </table>
+
+    <h2>📅 Agenda do dia</h2>
+    ${schedulingHtml}
+
+    <h2>💬 Conversas fora de agendamento</h2>
+    ${randomHtml}
   </div>
 </body>
 </html>`;
