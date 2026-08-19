@@ -58,4 +58,45 @@ ${transcript}`;
   }
 }
 
-module.exports = { classifyConversation };
+const STAFF_SYSTEM_PROMPT = `Você lê a transcrição de uma conversa de WhatsApp entre a gestão da empresa de limpeza "Limpa Limpa" e uma FUNCIONÁRIA da equipe (não é cliente), referente a UM único dia.
+O assunto normal dessas conversas é: combinar escala de faxinas do dia, endereço do cliente, horário, confirmação de que a funcionária vai comparecer, ou dúvidas sobre o serviço.
+
+Responda APENAS com um JSON válido, sem markdown, sem texto antes ou depois, no formato exato:
+{
+  "staff_name": string ou null (nome da funcionária, se identificável),
+  "summary": string curta (1-2 frases) resumindo o que foi combinado nessa conversa hoje. Ex: "Confirmada faxina na casa da Sra. Ana às 9h" ou "Perguntou sobre o endereço do serviço da tarde".
+  "pending_confirmation": boolean (true se ficou alguma coisa em aberto/sem resposta, tipo confirmação de presença que a funcionária ainda não deu)
+}
+
+Se não houver informação suficiente, use null nos campos de texto e false em pending_confirmation.`;
+
+async function classifyStaffConversation(transcript, pushName) {
+  const userMsg = `Nome salvo no WhatsApp (pode ser impreciso): ${pushName || 'desconhecido'}
+
+Transcrição do dia:
+${transcript}`;
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 300,
+    system: STAFF_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userMsg }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === 'text');
+  const raw = textBlock ? textBlock.text.trim() : '{}';
+  const clean = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+
+  try {
+    return JSON.parse(clean);
+  } catch (err) {
+    console.error('[classifier] falha ao parsear resposta do Claude (staff):', raw);
+    return {
+      staff_name: pushName || null,
+      summary: 'Falha ao classificar automaticamente',
+      pending_confirmation: false,
+    };
+  }
+}
+
+module.exports = { classifyConversation, classifyStaffConversation };
