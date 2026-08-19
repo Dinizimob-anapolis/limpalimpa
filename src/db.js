@@ -23,19 +23,73 @@ async function saveMessage({ remoteJid, pushName, fromMe, body, messageType, waT
   );
 }
 
-// Retorna todas as conversas que tiveram pelo menos 1 mensagem no dia (por remote_jid),
-// junto com o texto completo da conversa daquele dia (pra mandar pro classificador).
+// Lê a lista de números de funcionárias da variável de ambiente STAFF_NUMBERS
+// (formato: "5562991111111,5562992222222", sem @s.whatsapp.net) e devolve um Set
+// já normalizado pro formato usado no remote_jid.
+function getStaffJidSet() {
+  const raw = process.env.STAFF_NUMBERS || '';
+  const numbers = raw
+    .split(',')
+    .map((n) => n.trim())
+    .filter(Boolean);
+  return new Set(numbers.map((n) => `${n}@s.whatsapp.net`));
+}
+
+// Retorna todas as conversas do dia, já separadas em "clientes" e "equipe"
+// com base na lista de números de funcionárias (STAFF_NUMBERS).
 async function getConversationsForDate(dateStr) {
   const { rows } = await pool.query(
     `SELECT remote_jid,
             MAX(push_name) AS push_name,
             STRING_AGG(
-              (CASE WHEN from_me THEN 'Atendente' ELSE 'Cliente' END) || ': ' || COALESCE(body, '[mídia]'),
+              (CASE WHEN from_me THEN 'Atendente' ELSE 'Contato' END) || ': ' || COALESCE(body, '[mídia]'),
               E'\n' ORDER BY wa_timestamp
             ) AS transcript
      FROM messages
      WHERE wa_timestamp::date = $1::date
      GROUP BY remote_jid`,
+    [dateStr]
+  );
+
+  const staffJids = getStaffJidSet();
+  const clientConversations = rows.filter((r) => !staffJids.has(r.remote_jid));
+  const staffConversations = rows.filter((r) => staffJids.has(r.remote_jid));
+
+  return { clientConversations, staffConversations };
+}
+
+// Busca a transcrição do dia de UMA conversa específica (usado pra reclassificar em tempo real).
+async function getConversationTranscript(dateStr, remoteJid) {
+  const { rows } = await pool.query(
+    `SELECT remote_jid,
+            MAX(push_name) AS push_name,
+            STRING_AGG(
+              (CASE WHEN from_me THEN 'Atendente' ELSE 'Contato' END) || ': ' || COALESCE(body, '[mídia]'),
+              E'\n' ORDER BY wa_timestamp
+            ) AS transcript
+     FROM messages
+     WHERE wa_timestamp::date = $1::date AND remote_jid = $2
+     GROUP BY remote_jid`,
+    [dateStr, remoteJid]
+  );
+  return rows[0] || null;
+}
+
+async function upsertDailySchedule(reportDate, entry) {
+  await pool.query(
+    `INSERT INTO daily_schedule (report_date, remote_jid, staff_name, summary, pending_confirmation)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (report_date, remote_jid) DO UPDATE SET
+       staff_name = EXCLUDED.staff_name,
+       summary = EXCLUDED.summary,
+       pending_confirmation = EXCLUDED.pending_confirmation`,
+    [reportDate, entry.remoteJid, entry.staffName, entry.summary, entry.pendingConfirmation]
+  );
+}
+
+async function getDailyScheduleForDate(dateStr) {
+  const { rows } = await pool.query(
+    `SELECT * FROM daily_schedule WHERE report_date = $1::date ORDER BY staff_name NULLS LAST`,
     [dateStr]
   );
   return rows;
@@ -101,9 +155,13 @@ module.exports = {
   initSchema,
   saveMessage,
   getConversationsForDate,
+  getConversationTranscript,
+  getStaffJidSet,
   upsertDailyStatus,
   saveDailyReport,
   getDailyStatusForDate,
   getReportForDate,
   getRecentReportDates,
+  upsertDailySchedule,
+  getDailyScheduleForDate,
 };
