@@ -47,6 +47,9 @@ async function reclassifyConversation(dateStr, remoteJid) {
       endTime: classification.end_time,
       address: classification.address,
       isSchedulingRelated: classification.is_scheduling_related !== false,
+      hasConfirmedJob: !!classification.has_confirmed_job,
+      availabilityStatus: classification.availability_status,
+      availabilityNote: classification.availability_note,
     });
     // Se essa conversa já tinha ficado gravada como cliente antes (ex: antes do
     // número entrar na lista STAFF_NUMBERS), remove o registro errado.
