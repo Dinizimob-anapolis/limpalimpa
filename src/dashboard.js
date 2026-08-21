@@ -84,22 +84,6 @@ function availabilityCard(r) {
   </div>`;
 }
 
-function confirmedJobRow(r) {
-  const meta = WORK_STATUS_META[r.work_status] || WORK_STATUS_META.aguardando;
-  const horario = [r.start_time, r.end_time].filter(Boolean).join(' — ');
-  const pay = r.duration_hours ? money(staffPriceFor(r.duration_hours)) : '—';
-  return `<tr>
-    <td>${escapeHtml(r.staff_name || '(sem nome)')}</td>
-    <td><span class="badge" style="background:${meta.color}">${meta.label}</span></td>
-    <td>${escapeHtml(r.serving_client_name || '—')}</td>
-    <td>${escapeHtml(r.address || '—')}</td>
-    <td>${r.duration_hours ? r.duration_hours + 'h' : '—'}</td>
-    <td>${escapeHtml(horario || '—')}</td>
-    <td>${pay}</td>
-    <td class="notes">${escapeHtml(r.summary || '')}${r.pending_confirmation ? ' <span class="pending">⚠️ pendente</span>' : ''}</td>
-  </tr>`;
-}
-
 function staffRandomRow(r) {
   const phone = phoneFromJid(r.remote_jid);
   const notesWithPhone = [phone ? `📞 ${phone}` : null, r.summary || null].filter(Boolean).join(' — ');
@@ -107,6 +91,27 @@ function staffRandomRow(r) {
     <td>${escapeHtml(r.staff_name || '(sem nome)')}</td>
     <td class="notes">${escapeHtml(notesWithPhone)}</td>
   </tr>`;
+}
+
+// Card mini de uma funcionária dentro da caixinha de duração (4h/6h/8h)
+function jobMiniCard(r) {
+  const statusMeta = WORK_STATUS_META[r.work_status] || WORK_STATUS_META.aguardando;
+  const horario = [r.start_time, r.end_time].filter(Boolean).join(' — ');
+  return `<div class="job-card" style="border-left-color:${statusMeta.color}">
+    <div class="job-name">${escapeHtml(r.staff_name || '(sem nome)')}</div>
+    <div class="job-status" style="color:${statusMeta.color}">${statusMeta.label}</div>
+    <div class="job-detail">${escapeHtml(r.serving_client_name || 'cliente não identificado')}</div>
+    ${horario ? `<div class="job-detail">🕐 ${escapeHtml(horario)}</div>` : ''}
+    ${r.pending_confirmation ? '<div class="job-detail pending">⚠️ pendente</div>' : ''}
+  </div>`;
+}
+
+function durationGroup(hours, rows) {
+  const groupRows = rows.filter((r) => r.duration_hours === hours);
+  const cardsHtml = groupRows.length
+    ? `<div class="job-grid">${groupRows.map(jobMiniCard).join('')}</div>`
+    : `<div class="empty">Nenhum serviço de ${hours}h hoje.</div>`;
+  return `<h2>⏱️ ${hours}h (${groupRows.length})</h2>${cardsHtml}`;
 }
 
 function table(headers, rowsHtml, emptyMsg) {
@@ -129,9 +134,8 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
     .map((t) => `<a href="/dashboard?date=${dateStr}&tab=clientes&status=${t.key}" class="${activeStatus === t.key ? 'active' : ''}">${t.label} (${statusCounts[t.key]})</a>`)
     .join('');
 
-  // --- Equipe, em 3 blocos: disponibilidade / serviços confirmados / conversa aleatória ---
+  // --- Funcionárias: disponibilidade + conversa aleatória (sem a agenda, que foi pra aba própria) ---
   const availabilityRows = scheduleRows.filter((r) => r.availability_status === 'disponivel' || r.availability_status === 'indisponivel');
-  const confirmedRows = scheduleRows.filter((r) => r.has_confirmed_job);
   const randomRows = scheduleRows.filter((r) => r.is_scheduling_related === false);
 
   const availableCount = availabilityRows.filter((r) => r.availability_status === 'disponivel').length;
@@ -141,9 +145,21 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
     ? `<div class="avail-grid">${availabilityRows.map(availabilityCard).join('')}</div>`
     : `<div class="empty">Nenhuma funcionária mencionou disponibilidade hoje.</div>`;
 
-  const staffHeaders = ['Funcionária', 'Status', 'Cliente', 'Local', 'Duração', 'Horário', 'Recebe', 'Notas'];
-  const confirmedHtml = table(staffHeaders, confirmedRows.map(confirmedJobRow).join(''), 'Nenhum serviço confirmado com a equipe hoje.');
   const randomHtml = table(['Funcionária', 'Conversa'], randomRows.map(staffRandomRow).join(''), 'Nenhuma conversa fora do assunto de agendamento hoje.');
+
+  // --- Trabalhando hoje: quem tem serviço confirmado, agrupado por duração (4h/6h/8h) ---
+  const confirmedRows = scheduleRows.filter((r) => r.has_confirmed_job);
+  const emAndamentoRows = confirmedRows.filter((r) => r.work_status === 'em_andamento');
+  const aguardandoRows = confirmedRows.filter((r) => r.work_status === 'aguardando' || !r.work_status);
+  const concluidoRows = confirmedRows.filter((r) => r.work_status === 'concluido');
+
+  const group4hHtml = durationGroup(4, confirmedRows);
+  const group6hHtml = durationGroup(6, confirmedRows);
+  const group8hHtml = durationGroup(8, confirmedRows);
+  const noDurationRows = confirmedRows.filter((r) => ![4, 6, 8].includes(r.duration_hours));
+  const noDurationHtml = noDurationRows.length
+    ? `<h2>❓ Duração não informada (${noDurationRows.length})</h2><div class="job-grid">${noDurationRows.map(jobMiniCard).join('')}</div>`
+    : '';
 
   const summary = report || {
     total_recebido: 0,
@@ -153,8 +169,6 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
     orcamentos_sem_fechamento: 0,
   };
 
-  const emAndamento = confirmedRows.filter((r) => r.work_status === 'em_andamento').length;
-  const concluidos = confirmedRows.filter((r) => r.work_status === 'concluido').length;
   const totalFolha = confirmedRows.reduce((sum, r) => sum + (r.duration_hours ? staffPriceFor(r.duration_hours) : 0), 0);
 
   const datesNav = recentDates
@@ -193,12 +207,19 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
   .nav { margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
   .nav a { color: #8b949e; text-decoration: none; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid #30363d; }
   .nav a.active { background: #30363d; color: white; }
-  .section { display: ${activeTab === 'clientes' ? 'block' : 'none'}; }
-  .section.staff { display: ${activeTab === 'funcionarias' ? 'block' : 'none'}; }
+  .section { display: none; }
+  .section.active-section { display: block; }
   .avail-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
   .avail-card { background: #161b22; border: 1px solid #30363d; border-left: 4px solid; border-radius: 8px; padding: 10px 14px; min-width: 200px; max-width: 280px; }
   .avail-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
   .avail-note { color: #8b949e; font-size: 12px; }
+  .mini-summary { color: #8b949e; font-size: 12px; margin-bottom: 16px; }
+  .job-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .job-card { background: #161b22; border: 1px solid #30363d; border-left: 4px solid; border-radius: 8px; padding: 10px 14px; min-width: 180px; max-width: 240px; }
+  .job-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .job-status { font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+  .job-detail { color: #8b949e; font-size: 12px; }
+  .job-detail.pending { color: #d29922; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -209,10 +230,11 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
 
   <div class="tabs">
     <a href="/dashboard?date=${dateStr}&tab=clientes&status=${activeStatus}" class="${activeTab === 'clientes' ? 'active' : ''}">👥 Clientes</a>
-    <a href="/dashboard?date=${dateStr}&tab=funcionarias" class="${activeTab === 'funcionarias' ? 'active' : ''}">🧹 Funcionárias</a>
+    <a href="/dashboard?date=${dateStr}&tab=trabalho" class="${activeTab === 'trabalho' ? 'active' : ''}">👷 Trabalhando hoje</a>
+    <a href="/dashboard?date=${dateStr}&tab=funcionarias" class="${activeTab === 'funcionarias' ? 'active' : ''}">📋 Funcionárias</a>
   </div>
 
-  <div class="section">
+  <div class="section ${activeTab === 'clientes' ? 'active-section' : ''}">
     <div class="cards">
       <div class="card"><div class="value">${money(summary.total_recebido)}</div><div class="label">💰 Total recebido</div></div>
       <div class="card"><div class="value">${summary.servicos_contratados}</div><div class="label">🧹 Serviços contratados</div></div>
@@ -223,21 +245,32 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
     ${clientTableHtml}
   </div>
 
-  <div class="section staff">
+  <div class="section ${activeTab === 'trabalho' ? 'active-section' : ''}">
+    <div class="cards">
+      <div class="card"><div class="value">${emAndamentoRows.length}</div><div class="label">🟡 Em andamento agora</div></div>
+      <div class="card"><div class="value">${aguardandoRows.length}</div><div class="label">⏸️ Aguardando início</div></div>
+      <div class="card"><div class="value">${concluidoRows.length}</div><div class="label">✅ Já concluíram</div></div>
+      <div class="card"><div class="value">${confirmedRows.length}</div><div class="label">📅 Total confirmados hoje</div></div>
+      <div class="card"><div class="value">${money(totalFolha)}</div><div class="label">💸 Folha do dia</div></div>
+    </div>
+
+    <h2>👷 Serviços confirmados hoje</h2>
+    <div class="mini-summary">${emAndamentoRows.length} em andamento · ${aguardandoRows.length} aguardando · ${concluidoRows.length} concluídos</div>
+
+    ${group4hHtml}
+    ${group6hHtml}
+    ${group8hHtml}
+    ${noDurationHtml}
+  </div>
+
+  <div class="section ${activeTab === 'funcionarias' ? 'active-section' : ''}">
     <div class="cards">
       <div class="card"><div class="value">${availableCount}</div><div class="label">🟢 Disponíveis</div></div>
       <div class="card"><div class="value">${unavailableCount}</div><div class="label">🔴 Indisponíveis</div></div>
-      <div class="card"><div class="value">${confirmedRows.length}</div><div class="label">📅 Serviços confirmados</div></div>
-      <div class="card"><div class="value">${emAndamento}</div><div class="label">🟡 Em andamento</div></div>
-      <div class="card"><div class="value">${concluidos}</div><div class="label">✅ Concluídos</div></div>
-      <div class="card"><div class="value">${money(totalFolha)}</div><div class="label">💸 Folha do dia</div></div>
     </div>
 
     <h2>🚦 Disponibilidade informada</h2>
     ${availabilityHtml}
-
-    <h2>📅 Serviços confirmados</h2>
-    ${confirmedHtml}
 
     <h2>💬 Conversas fora de agendamento</h2>
     ${randomHtml}
@@ -250,7 +283,8 @@ function registerDashboard(app) {
   app.get('/dashboard', basicAuth, async (req, res) => {
     try {
       const dateStr = req.query.date || new Date().toISOString().slice(0, 10);
-      const activeTab = req.query.tab === 'funcionarias' ? 'funcionarias' : 'clientes';
+      const validTabs = ['clientes', 'trabalho', 'funcionarias'];
+      const activeTab = validTabs.includes(req.query.tab) ? req.query.tab : 'clientes';
       const validStatuses = STATUS_TABS.map((t) => t.key);
       const activeStatus = validStatuses.includes(req.query.status) ? req.query.status : 'pagou';
       const [statusRows, scheduleRows, report, recentDates] = await Promise.all([
