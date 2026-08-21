@@ -1,21 +1,19 @@
 const db = require('./db');
 const { staffPriceFor } = require('./pricing');
 
-const STATUS_META = {
-  pagou: { label: '✅ Pagou', color: '#1a7f37' },
-  contratou: { label: '🟢 Contratou', color: '#2da44e' },
-  aguardando_pagamento: { label: '⏳ Aguardando pagamento', color: '#9a6700' },
-  nao_contratou: { label: '🔴 Não contratou', color: '#cf222e' },
-  em_atendimento: { label: '🟡 Em atendimento', color: '#bf8700' },
-};
+const STATUS_TABS = [
+  { key: 'pagou', label: '✅ Pagou' },
+  { key: 'contratou', label: '🟢 Contratou' },
+  { key: 'aguardando_pagamento', label: '⏳ Aguardando pagamento' },
+  { key: 'em_atendimento', label: '🟡 Em atendimento' },
+  { key: 'nao_contratou', label: '🔴 Não contratou' },
+];
 
 const WORK_STATUS_META = {
   aguardando: { label: '⏸️ Aguardando', color: '#57606a' },
   em_andamento: { label: '🟡 Em andamento', color: '#bf8700' },
   concluido: { label: '✅ Concluído', color: '#1a7f37' },
 };
-
-const CONVERTED_STATUSES = ['pagou', 'contratou', 'aguardando_pagamento'];
 
 function money(v) {
   if (v === null || v === undefined) return '—';
@@ -61,13 +59,11 @@ function basicAuth(req, res, next) {
 }
 
 function clientRow(r) {
-  const meta = STATUS_META[r.status] || { label: r.status, color: '#57606a' };
   const agenda = [r.scheduled_date, r.scheduled_time].filter(Boolean).join(' ');
   const phone = phoneFromJid(r.remote_jid);
   const notesWithPhone = [phone ? `📞 ${phone}` : null, r.notes || null].filter(Boolean).join(' — ');
   return `<tr>
     <td>${escapeHtml(r.client_name || '(sem nome)')}</td>
-    <td><span class="badge" style="background:${meta.color}">${meta.label}</span></td>
     <td>${money(r.value)}</td>
     <td>${escapeHtml(r.service_type || (r.duration_hours ? `Faxina ${r.duration_hours}h` : '—'))}</td>
     <td>${escapeHtml(agenda || '—')}</td>
@@ -77,7 +73,18 @@ function clientRow(r) {
   </tr>`;
 }
 
-function staffRow(r) {
+// Card visual de disponibilidade (verde/vermelho), sem tabela — é rápido de escanear.
+function availabilityCard(r) {
+  const isAvailable = r.availability_status === 'disponivel';
+  const color = isAvailable ? '#1a7f37' : '#cf222e';
+  const icon = isAvailable ? '🟢' : '🔴';
+  return `<div class="avail-card" style="border-color:${color}">
+    <div class="avail-name">${icon} ${escapeHtml(r.staff_name || '(sem nome)')}</div>
+    <div class="avail-note">${escapeHtml(r.availability_note || '')}</div>
+  </div>`;
+}
+
+function confirmedJobRow(r) {
   const meta = WORK_STATUS_META[r.work_status] || WORK_STATUS_META.aguardando;
   const horario = [r.start_time, r.end_time].filter(Boolean).join(' — ');
   const pay = r.duration_hours ? money(staffPriceFor(r.duration_hours)) : '—';
@@ -109,20 +116,34 @@ function table(headers, rowsHtml, emptyMsg) {
   </table>`;
 }
 
-function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, activeTab) {
-  const converted = statusRows.filter((r) => CONVERTED_STATUSES.includes(r.status));
-  const inquiring = statusRows.filter((r) => !CONVERTED_STATUSES.includes(r.status));
+function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, activeTab, activeStatus) {
+  // --- Clientes, por aba de status ---
+  const statusCounts = {};
+  STATUS_TABS.forEach((t) => { statusCounts[t.key] = statusRows.filter((r) => r.status === t.key).length; });
 
-  const schedulingRows = scheduleRows.filter((r) => r.is_scheduling_related !== false);
+  const currentStatusRows = statusRows.filter((r) => r.status === activeStatus);
+  const clientHeaders = ['Cliente', 'Valor', 'Serviço', 'Agenda', 'Funcionária', 'Endereço', 'Notas'];
+  const clientTableHtml = table(clientHeaders, currentStatusRows.map(clientRow).join(''), 'Nenhum cliente nessa situação hoje.');
+
+  const statusTabsHtml = STATUS_TABS
+    .map((t) => `<a href="/dashboard?date=${dateStr}&tab=clientes&status=${t.key}" class="${activeStatus === t.key ? 'active' : ''}">${t.label} (${statusCounts[t.key]})</a>`)
+    .join('');
+
+  // --- Equipe, em 3 blocos: disponibilidade / serviços confirmados / conversa aleatória ---
+  const availabilityRows = scheduleRows.filter((r) => r.availability_status === 'disponivel' || r.availability_status === 'indisponivel');
+  const confirmedRows = scheduleRows.filter((r) => r.has_confirmed_job);
   const randomRows = scheduleRows.filter((r) => r.is_scheduling_related === false);
 
-  const clientHeaders = ['Cliente', 'Situação', 'Valor', 'Serviço', 'Agenda', 'Funcionária', 'Endereço', 'Notas'];
-  const convertedHtml = table(clientHeaders, converted.map(clientRow).join(''), 'Nenhum cliente contratou/agendou nesse dia.');
-  const inquiringHtml = table(clientHeaders, inquiring.map(clientRow).join(''), 'Nenhum cliente só perguntando nesse dia.');
+  const availableCount = availabilityRows.filter((r) => r.availability_status === 'disponivel').length;
+  const unavailableCount = availabilityRows.filter((r) => r.availability_status === 'indisponivel').length;
+
+  const availabilityHtml = availabilityRows.length
+    ? `<div class="avail-grid">${availabilityRows.map(availabilityCard).join('')}</div>`
+    : `<div class="empty">Nenhuma funcionária mencionou disponibilidade hoje.</div>`;
 
   const staffHeaders = ['Funcionária', 'Status', 'Cliente', 'Local', 'Duração', 'Horário', 'Recebe', 'Notas'];
-  const schedulingHtml = table(staffHeaders, schedulingRows.map(staffRow).join(''), 'Nenhuma conversa de agendamento com a equipe nesse dia.');
-  const randomHtml = table(['Funcionária', 'Conversa'], randomRows.map(staffRandomRow).join(''), 'Nenhuma conversa fora do assunto de agendamento nesse dia.');
+  const confirmedHtml = table(staffHeaders, confirmedRows.map(confirmedJobRow).join(''), 'Nenhum serviço confirmado com a equipe hoje.');
+  const randomHtml = table(['Funcionária', 'Conversa'], randomRows.map(staffRandomRow).join(''), 'Nenhuma conversa fora do assunto de agendamento hoje.');
 
   const summary = report || {
     total_recebido: 0,
@@ -132,12 +153,12 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
     orcamentos_sem_fechamento: 0,
   };
 
-  const emAndamento = schedulingRows.filter((r) => r.work_status === 'em_andamento').length;
-  const concluidos = schedulingRows.filter((r) => r.work_status === 'concluido').length;
-  const totalFolha = schedulingRows.reduce((sum, r) => sum + (r.duration_hours ? staffPriceFor(r.duration_hours) : 0), 0);
+  const emAndamento = confirmedRows.filter((r) => r.work_status === 'em_andamento').length;
+  const concluidos = confirmedRows.filter((r) => r.work_status === 'concluido').length;
+  const totalFolha = confirmedRows.reduce((sum, r) => sum + (r.duration_hours ? staffPriceFor(r.duration_hours) : 0), 0);
 
   const datesNav = recentDates
-    .map((d) => `<a href="/dashboard?date=${d}&tab=${activeTab}" class="${d === dateStr ? 'active' : ''}">${d}</a>`)
+    .map((d) => `<a href="/dashboard?date=${d}&tab=${activeTab}&status=${activeStatus}" class="${d === dateStr ? 'active' : ''}">${d}</a>`)
     .join('');
 
   return `<!DOCTYPE html>
@@ -152,10 +173,13 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
   h1 { font-size: 20px; margin-bottom: 4px; }
   h2 { font-size: 15px; color: #c9d1d9; margin: 24px 0 10px; }
   .date-label { color: #8b949e; margin-bottom: 16px; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
   .tabs a { padding: 8px 16px; border-radius: 8px; text-decoration: none; color: #8b949e; border: 1px solid #30363d; font-weight: 600; font-size: 14px; }
   .tabs a.active { background: #1f6feb; color: white; border-color: #1f6feb; }
-  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+  .status-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .status-tabs a { padding: 6px 12px; border-radius: 20px; text-decoration: none; color: #c9d1d9; border: 1px solid #30363d; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .status-tabs a.active { background: #21262d; border-color: #58a6ff; color: #58a6ff; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
   .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; min-width: 140px; }
   .card .value { font-size: 22px; font-weight: 700; }
   .card .label { color: #8b949e; font-size: 12px; margin-top: 4px; }
@@ -165,12 +189,16 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
   .badge { color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; white-space: nowrap; }
   .notes { color: #8b949e; font-size: 12px; max-width: 260px; }
   .pending { color: #d29922; font-weight: 600; }
-  .empty { text-align: center; color: #8b949e; padding: 24px; }
+  .empty { text-align: center; color: #8b949e; padding: 24px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
   .nav { margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
   .nav a { color: #8b949e; text-decoration: none; font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid #30363d; }
   .nav a.active { background: #30363d; color: white; }
   .section { display: ${activeTab === 'clientes' ? 'block' : 'none'}; }
   .section.staff { display: ${activeTab === 'funcionarias' ? 'block' : 'none'}; }
+  .avail-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .avail-card { background: #161b22; border: 1px solid #30363d; border-left: 4px solid; border-radius: 8px; padding: 10px 14px; min-width: 200px; max-width: 280px; }
+  .avail-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .avail-note { color: #8b949e; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -180,7 +208,7 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
   <div class="nav">${datesNav || '<span style="color:#8b949e">Nenhum relatório gerado ainda.</span>'}</div>
 
   <div class="tabs">
-    <a href="/dashboard?date=${dateStr}&tab=clientes" class="${activeTab === 'clientes' ? 'active' : ''}">👥 Clientes</a>
+    <a href="/dashboard?date=${dateStr}&tab=clientes&status=${activeStatus}" class="${activeTab === 'clientes' ? 'active' : ''}">👥 Clientes</a>
     <a href="/dashboard?date=${dateStr}&tab=funcionarias" class="${activeTab === 'funcionarias' ? 'active' : ''}">🧹 Funcionárias</a>
   </div>
 
@@ -189,27 +217,27 @@ function renderPage(dateStr, statusRows, scheduleRows, report, recentDates, acti
       <div class="card"><div class="value">${money(summary.total_recebido)}</div><div class="label">💰 Total recebido</div></div>
       <div class="card"><div class="value">${summary.servicos_contratados}</div><div class="label">🧹 Serviços contratados</div></div>
       <div class="card"><div class="value">${summary.clientes_atendidos}</div><div class="label">👥 Clientes atendidos</div></div>
-      <div class="card"><div class="value">${summary.pagamentos_pendentes}</div><div class="label">⏳ Pagamentos pendentes</div></div>
-      <div class="card"><div class="value">${summary.orcamentos_sem_fechamento}</div><div class="label">❌ Sem fechamento</div></div>
     </div>
 
-    <h2>🟢 Contrataram / Agendaram</h2>
-    ${convertedHtml}
-
-    <h2>💬 Só perguntaram / Em negociação</h2>
-    ${inquiringHtml}
+    <div class="status-tabs">${statusTabsHtml}</div>
+    ${clientTableHtml}
   </div>
 
   <div class="section staff">
     <div class="cards">
-      <div class="card"><div class="value">${schedulingRows.length}</div><div class="label">🧹 Agendamentos ativos</div></div>
+      <div class="card"><div class="value">${availableCount}</div><div class="label">🟢 Disponíveis</div></div>
+      <div class="card"><div class="value">${unavailableCount}</div><div class="label">🔴 Indisponíveis</div></div>
+      <div class="card"><div class="value">${confirmedRows.length}</div><div class="label">📅 Serviços confirmados</div></div>
       <div class="card"><div class="value">${emAndamento}</div><div class="label">🟡 Em andamento</div></div>
       <div class="card"><div class="value">${concluidos}</div><div class="label">✅ Concluídos</div></div>
-      <div class="card"><div class="value">${money(totalFolha)}</div><div class="label">💸 Total a pagar (folha do dia)</div></div>
+      <div class="card"><div class="value">${money(totalFolha)}</div><div class="label">💸 Folha do dia</div></div>
     </div>
 
-    <h2>📅 Agenda do dia</h2>
-    ${schedulingHtml}
+    <h2>🚦 Disponibilidade informada</h2>
+    ${availabilityHtml}
+
+    <h2>📅 Serviços confirmados</h2>
+    ${confirmedHtml}
 
     <h2>💬 Conversas fora de agendamento</h2>
     ${randomHtml}
@@ -223,13 +251,15 @@ function registerDashboard(app) {
     try {
       const dateStr = req.query.date || new Date().toISOString().slice(0, 10);
       const activeTab = req.query.tab === 'funcionarias' ? 'funcionarias' : 'clientes';
+      const validStatuses = STATUS_TABS.map((t) => t.key);
+      const activeStatus = validStatuses.includes(req.query.status) ? req.query.status : 'pagou';
       const [statusRows, scheduleRows, report, recentDates] = await Promise.all([
         db.getDailyStatusForDate(dateStr),
         db.getDailyScheduleForDate(dateStr),
         db.getReportForDate(dateStr),
         db.getRecentReportDates(14),
       ]);
-      res.send(renderPage(dateStr, statusRows, scheduleRows, report, recentDates, activeTab));
+      res.send(renderPage(dateStr, statusRows, scheduleRows, report, recentDates, activeTab, activeStatus));
     } catch (err) {
       console.error('[dashboard] erro:', err);
       res.status(500).send('Erro ao carregar dashboard.');
