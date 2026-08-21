@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_remote_jid ON messages(remote_jid);
 CREATE INDEX IF NOT EXISTS idx_messages_wa_timestamp ON messages(wa_timestamp);
 
--- Classificação diária por cliente, gerada pelo Claude (em tempo real, a cada mensagem)
+-- Classificação diária por cliente, gerada pelo Claude no fechamento das 19h
 CREATE TABLE IF NOT EXISTS daily_status (
   id SERIAL PRIMARY KEY,
   report_date DATE NOT NULL,
@@ -68,6 +68,9 @@ ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS start_time TEXT;
 ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS end_time TEXT;
 ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS is_scheduling_related BOOLEAN DEFAULT true;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS has_confirmed_job BOOLEAN DEFAULT false;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS availability_status TEXT;
+ALTER TABLE daily_schedule ADD COLUMN IF NOT EXISTS availability_note TEXT;
 
 -- Números que devem ser completamente ignorados (nem cliente, nem equipe) —
 -- usado, por exemplo, pra excluir a conversa da própria dona/gestão da empresa.
